@@ -117,6 +117,10 @@ SNAPPER_CONFIG="root"
 * **s-nail**: (or mailx) SMTP notification client.
 * **systemd**: Service orchestration and scheduling.
 
+## 🏗 Contributing & Building
+
+Contributions are welcome! If you'd like to build the package from source or modify the update logic, please refer to the [Development Guide](DEVELOPMENT.md).
+
 ---
 *License: GPL-3.0-or-later*
 *Built for Fedora Linux*
