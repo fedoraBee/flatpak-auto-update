@@ -4,26 +4,24 @@ This document provides instructions for developers who wish to modify, build, an
 
 ## 🛠 Project Standards
 
-- **Idempotency:** The update script must handle "No updates available" gracefully by cleaning up its own pre-update snapshots.
+- **Idempotency:** The script must handle "No updates available" gracefully by cleaning up its own pre-update snapshots.
 - **Atomic Operations:** Every update attempt must be preceded by a Snapper `pre` snapshot and followed by a `post` snapshot only if changes occurred.
-- **Reporting:** System status and update logs are delivered via local mail (`s-nail`/`mailx`).
-- **Packaging:** All components are managed via the RPM spec file in `specs/`.
+- **Reporting:** Dynamic subjects must follow the format `[hostname] flatpak-auto-update: X new upgrades have been installed.`.
+- **Packaging:** All components are managed via the RPM spec file.
 
 ## 🏗 Architectural Overview
 
-- **`scripts/`**: Contains the core logic (`flatpak-auto-update.sh`).
+- **`scripts/`**: Core logic (`flatpak-auto-update.sh`) using `set -euo pipefail`.
 - **`systemd/`**: Defines the `oneshot` service and the `daily` timer.
 - **`config/`**: Holds the environment-based configuration (`env.conf`).
 - **`specs/`**: RPM packaging definition for deployment.
 
 ## 📦 Local Development & Packaging
 
-To test changes locally, you can rebuild and reinstall the RPM package.
-
 ### Prerequisites
-Ensure the RPM build tree exists:
+Install the Fedora packaging tools:
 ```bash
-mkdir -p ~/rpmbuild/{SOURCES,SPECS,RPMS,SRPMS,BUILD}
+sudo dnf install fedora-packager rpm-build shellcheck rpmlint
 ```
 
 ### Build & Install Workflow
@@ -43,19 +41,42 @@ mkdir -p ~/rpmbuild/{SOURCES,SPECS,RPMS,SRPMS,BUILD}
    rpmbuild -bb ~/rpmbuild/SPECS/flatpak-auto-update.spec
    ```
 
-3. **(Re)install the package:**
+3. **Install/Update the package:**
    ```bash
-   # Use 'reinstall' if the package is already on the system, otherwise 'install'
-   sudo dnf reinstall ~/rpmbuild/RPMS/noarch/flatpak-auto-update-1.*.noarch.rpm
+   sudo dnf reinstall ~/rpmbuild/RPMS/noarch/flatpak-auto-update-1.0.1-1.*.noarch.rpm
    ```
 
-4. **Enable the systemd timer:**
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now flatpak-auto-update.timer
-   ```
+## 🧪 Testing Logic
 
-## ✅ Validation
-- **Script Syntax:** `bash -n scripts/flatpak-auto-update.sh`
-- **Service Files:** `systemd-analyze verify systemd/*` (where applicable)
-- **RPM Lint:** `rpmlint specs/flatpak-auto-update.spec`
+### Manual Logic Test
+To test the script logic immediately (including snapshots and mail):
+```bash
+sudo /usr/bin/flatpak-auto-update
+```
+
+### Configuration Override
+To test different email or snapshot settings without modifying the system config, create a local test file and source it before running:
+```bash
+export CONFIG_FILE="./test-env.conf"
+sudo -E /usr/bin/flatpak-auto-update
+```
+
+## ✅ Validation & Linting
+
+Before committing changes, run the following checks:
+
+- **Bash Static Analysis:**
+  ```bash
+  shellcheck scripts/flatpak-auto-update.sh
+  ```
+- **Script Syntax Check:**
+  ```bash
+  bash -n scripts/flatpak-auto-update.sh
+  ```
+- **RPM Spec Lint:**
+  ```bash
+  rpmlint specs/flatpak-auto-update.spec
+  ```
+
+---
+*Maintained by fedoraBee - 2026*

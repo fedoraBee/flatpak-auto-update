@@ -1,31 +1,19 @@
 #!/bin/bash
 ################################################################################
 # Flatpak Auto Update (Linux Professional Edition)
-# Version: 1.0.0
+# Version: 1.0.1
 # Author: fedoraBee
 # Source: https://github.com/fedoraBee/flatpak-auto-update
 #
 # Description:
 #   An automation wrapper for Flatpak updates on Fedora Linux,
 #   integrating Snapper for atomic-like rollbacks and systemd for scheduling.
+#   Includes dynamic package count in email subject lines.
 #
-# License:
-#   Copyright (C) 2026 fedoraBee
-#
-#   This program is free software: you can redistribute it and/or modify
-#   it under the terms of the GNU General Public License as published by
-#   the Free Software Foundation, either version 3 of the License, or
-#   (at your option) any later version.
-#
-#   This program is distributed in the hope that it will be useful,
-#   but WITHOUT ANY WARRANTY; without even the implied warranty of
-#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#   GNU General Public License for more details.
-#
-#   You should have received a copy of the GNU General Public License
-#   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# License: GPL-3.0-or-later
 ################################################################################
 set -euo pipefail
+
 CONFIG_FILE="/etc/flatpak-auto-update/env.conf"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 
@@ -35,8 +23,9 @@ ENABLE_SNAPSHOTS="${ENABLE_SNAPSHOTS:-yes}"
 
 # Mail Defaults
 EMAIL_FROM_DISPLAY="${EMAIL_FROM_DISPLAY:-Fedora Bot}"
-EMAIL_SUBJECT_SUCCESS="${EMAIL_SUBJECT_SUCCESS:-Flatpak Update: Success ($(hostname))}"
-EMAIL_SUBJECT_FAILURE="${EMAIL_SUBJECT_FAILURE:-SERIOUS: Flatpak Update Failed ($(hostname))}"
+# The Subject now uses a variable $UPDATE_COUNT which is calculated later
+EMAIL_SUBJECT_SUCCESS="${EMAIL_SUBJECT_SUCCESS:-[$(hostname)] flatpak-auto-update: \$UPDATE_COUNT new upgrades have been installed.}"
+EMAIL_SUBJECT_FAILURE="${EMAIL_SUBJECT_FAILURE:-[$(hostname)] flatpak-auto-update: FAILED}"
 MAIL_CMD="${MAIL_CMD:-mailx -S sendwait -r \"\$EMAIL_FROM_DISPLAY <\$email_from>\" -s \"\$1\" \"\$2\"}"
 EMAIL_BODY_SUCCESS="${EMAIL_BODY_SUCCESS:-\$UPDATE_OUT}"
 EMAIL_BODY_FAILURE="${EMAIL_BODY_FAILURE:-\$UPDATE_OUT}"
@@ -57,27 +46,30 @@ fi
 
 # Helper to send notifications
 send_notification() {
-    local subject="$1"
+    local subject_template="$1"
     local recipient="$2"
     local body_template="$3"
+    
+    # Evaluate templates to resolve variables like $UPDATE_COUNT and $UPDATE_OUT
+    local subject
     local body
+    subject=$(eval "echo \"$subject_template\"")
     body=$(eval "echo \"$body_template\"")
+    
     (
         set -- "$subject" "$recipient"
         printf "%s\n" "$body" | eval "$MAIL_CMD"
     )
 }
 
-# 0. Dry run check (optional)
-# Avoids creating a snapshot if there are no updates to apply.
-if [[ "$ENABLE_SNAPSHOTS" == "yes" ]]; then
-    DRY_RUN_OUT=$(flatpak update --dry-run --noninteractive 2>&1) || true
-    if [[ "$DRY_RUN_OUT" =~ "Nothing to do" ]] || [[ "$DRY_RUN_OUT" =~ "No updates" ]]; then
-        exit 0
-    fi
+# 0. Dry run check
+# Optimization: Check if updates exist before doing anything with Snapper
+DRY_RUN_OUT=$(flatpak update --dry-run --noninteractive 2>&1) || true
+if [[ "$DRY_RUN_OUT" =~ "Nothing to do" ]] || [[ "$DRY_RUN_OUT" =~ "No updates" ]]; then
+    exit 0
 fi
 
-# 1. Pre-update snapshot (optional)
+# 1. Pre-update snapshot
 PRE_NUM=""
 if [[ "$ENABLE_SNAPSHOTS" == "yes" ]]; then
     PRE_NUM=$(eval "$SNAPPER_PRE_CMD")
@@ -87,32 +79,35 @@ fi
 EXIT_CODE=0
 UPDATE_OUT=$(flatpak update -y --noninteractive 2>&1) || EXIT_CODE=$?
 
-UPDATED=false
-# Flatpak exit code 0 usually means success; check output to see if anything happened
-[[ "$EXIT_CODE" -eq 0 ]] && [[ ! "$UPDATE_OUT" =~ "Nothing to do" ]] && [[ ! "$UPDATE_OUT" =~ "No updates" ]] && UPDATED=true
+# 3. Calculate Update Count
+# Counts lines starting with Installing, Updating, or Removing
+UPDATE_COUNT=$(echo "$UPDATE_OUT" | grep -E "^(Installing|Updating|Removing)" | wc -l)
 
-# 3. Post-processing
+UPDATED=false
+[[ "$EXIT_CODE" -eq 0 ]] && [[ "$UPDATE_COUNT" -gt 0 ]] && UPDATED=true
+
+# 4. Post-processing
 if [ "$UPDATED" = true ]; then
-    # Create post-snapshot (optional)
+    # Create post-snapshot
     if [[ "$ENABLE_SNAPSHOTS" == "yes" && -n "$PRE_NUM" ]]; then
         eval "$SNAPPER_POST_CMD"
     fi
-    # Send success email (optional)
+    # Send success email
     if [[ "$ENABLE_EMAIL" == "yes" ]]; then
         send_notification "$EMAIL_SUBJECT_SUCCESS" "$email_to" "$EMAIL_BODY_SUCCESS"
     fi
 elif [ "$EXIT_CODE" -ne 0 ]; then
-    # Send failure email (optional)
+    # Send failure email
     if [[ "$ENABLE_EMAIL" == "yes" ]]; then
         send_notification "$EMAIL_SUBJECT_FAILURE" "$email_to" "$EMAIL_BODY_FAILURE"
     fi
-    # Cleanup orphan pre-snapshot (optional)
+    # Cleanup orphan pre-snapshot
     if [[ "$ENABLE_SNAPSHOTS" == "yes" && -n "$PRE_NUM" ]]; then
         eval "$SNAPPER_DELETE_CMD" >/dev/null 2>&1 || true
     fi
     exit "$EXIT_CODE"
 else
-    # Success but nothing updated - Cleanup pre-snapshot (optional)
+    # Success but nothing actually changed (rare due to dry-run check)
     if [[ "$ENABLE_SNAPSHOTS" == "yes" && -n "$PRE_NUM" ]]; then
         eval "$SNAPPER_DELETE_CMD" >/dev/null 2>&1 || true
     fi
