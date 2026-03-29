@@ -1,14 +1,14 @@
 #!/bin/bash
 ################################################################################
 # Flatpak Auto Update (Linux Professional Edition)
-# Version: 1.0.2
+# Version: 1.0.3
 # Author: fedoraBee
 # Source: https://github.com/fedoraBee/flatpak-auto-update
 #
 # Description:
-#   An automation wrapper for Flatpak updates on Fedora Linux,
+#   An automation wrapper for Flatpak updates on Fedora and RPM-based systems,
 #   integrating Snapper for atomic-like rollbacks and systemd for scheduling.
-#   Includes dynamic package count in email subject lines.
+#   Includes dynamic package count and universal Btrfs/Snapper detection.
 #
 # License: GPL-3.0-or-later
 ################################################################################
@@ -23,7 +23,6 @@ ENABLE_SNAPSHOTS="${ENABLE_SNAPSHOTS:-yes}"
 
 # Mail Defaults
 EMAIL_FROM_DISPLAY="${EMAIL_FROM_DISPLAY:-Fedora Bot}"
-# The Subject now uses a variable $UPDATE_COUNT which is calculated later
 EMAIL_SUBJECT_SUCCESS="${EMAIL_SUBJECT_SUCCESS:-[$(hostname)] flatpak-auto-update: \$UPDATE_COUNT new upgrades have been installed.}"
 EMAIL_SUBJECT_FAILURE="${EMAIL_SUBJECT_FAILURE:-[$(hostname)] flatpak-auto-update: FAILED}"
 MAIL_CMD="${MAIL_CMD:-mailx -S sendwait -r \"\$EMAIL_FROM_DISPLAY <\$EMAIL_FROM>\" -s \"\$1\" \"\$2\"}"
@@ -61,6 +60,14 @@ send_notification() {
         printf "%s\n" "$body" | eval "$MAIL_CMD"
     )
 }
+
+# Safety Check: Disable snapshots if Snapper config is invalid or Btrfs is missing
+if [[ "$ENABLE_SNAPSHOTS" == "yes" ]]; then
+    if ! snapper -c "$SNAPPER_CONFIG" get-config >/dev/null 2>&1; then
+        echo "WARNING: Snapper config '$SNAPPER_CONFIG' invalid or missing. Disabling snapshots." >&2
+        ENABLE_SNAPSHOTS="no"
+    fi
+fi
 
 # 0. Dry run check
 # Optimization: Check if updates exist before doing anything with Snapper
