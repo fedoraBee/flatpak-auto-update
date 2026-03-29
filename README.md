@@ -1,29 +1,30 @@
 # Flatpak Auto Update
 
-**Flatpak Auto Update** is a system utility for Fedora Linux that automates Flatpak package updates with atomic-like safety using Snapper snapshots and provides detailed email reporting.
+**Flatpak Auto Update** is a robust system utility for Fedora Linux that orchestrates Flatpak package updates with atomic-like safety using Snapper snapshots and provides intelligent, dynamic email reporting.
 
 ---
 
 ## 🚀 Overview
 
-This utility ensures your Flatpak applications stay up-to-date without manual intervention. It leverages Btrfs snapshots to provide a safety net, allowing you to roll back easily if an update causes instability.
+This utility ensures your Flatpak environment remains current without manual overhead. By leveraging Btrfs snapshots, it creates a reliable "time machine" for your applications, allowing for granular rollbacks if an update introduces regressions.
 
 ### Key Features
-- **Atomic-like Safety:** Automatically creates Snapper `pre` and `post` snapshots for every update session.
-- **Idempotent Execution:** Performs a dry-run check first; if no updates are available, it exits without creating unnecessary snapshots.
-- **Detailed Reporting:** Sends success or failure notifications via local mail (`s-nail`/`mailx`).
-- **Fully Configurable:** Easily override snapshot commands, mail settings, and even the backup strategy (e.g., using raw `btrfs` commands) via a central configuration file.
+- **Atomic-like Safety:** Automatically pairs Snapper `pre` and `post` snapshots for every successful update.
+- **Smart Notifications:** Subject lines dynamically include the count of updated packages: `[hostname] flatpak-auto-update: X new upgrades have been installed.`.
+- **Optimization-First:** Performs a zero-impact dry-run check. If no updates are found, it exits immediately without touching the disk for snapshots.
+- **Enterprise Configurable:** Every aspect—from snapshot cleanup algorithms to mail command strings—can be overridden via a central environment file.
 
 ---
 
-## 🛠 How It Works
+## 🛠 Technical Logic Flow (v1.0.1)
 
-1. **Dry-Run Check:** The script checks for pending updates. If none are found, it cleans up and exits.
-2. **Pre-Update Snapshot:** A Snapper `pre` snapshot is created to capture the system state.
-3. **Execution:** Updates are applied non-interactively (`flatpak update -y`).
-4. **Conditional Finalization:**
-   - **Success:** A `post` snapshot is created and linked to the `pre` snapshot; a success email is sent.
-   - **Failure:** The "orphan" `pre` snapshot is deleted to save space, and a failure report is emailed for troubleshooting.
+1. **Zero-Impact Check:** Executes `flatpak update --dry-run`. If the system is current, the script terminates.
+2. **Pre-Update State:** A Snapper `pre` snapshot is generated to secure the current system state.
+3. **Automated Execution:** Updates are applied in non-interactive mode (`flatpak update -y`).
+4. **Change Analysis:** The script parses the output to calculate exactly how many packages were `Installed`, `Updated`, or `Removed`.
+5. **Conditional Finalization:**
+   - **On Success:** A `post` snapshot is linked to the `pre` ID. A notification is sent with the dynamic update count.
+   - **On Failure:** The "orphan" `pre` snapshot is purged to prevent disk clutter, and a failure report is dispatched.
 
 ---
 
@@ -32,54 +33,48 @@ This utility ensures your Flatpak applications stay up-to-date without manual in
 Install the utility using the generated RPM package:
 
 ```bash
-sudo dnf install ./flatpak-auto-update-1.0.0-1.noarch.rpm
+sudo dnf install ~/rpmbuild/RPMS/noarch/flatpak-auto-update-1.0.1-1.*.noarch.rpm
 ```
 
 ---
 
 ## ⚙️ Usage
 
-The utility is managed by a systemd timer for automated daily updates.
+The utility is managed by a systemd timer for automated daily maintenance.
 
 ### Check the Schedule
-To see when the next update check is scheduled:
+To see the next scheduled execution:
 ```bash
 systemctl list-timers flatpak-auto-update.timer
 ```
 
 ### Manual Trigger
-To run the update check immediately:
+To initiate an update check and snapshot cycle immediately:
 ```bash
 sudo systemctl start flatpak-auto-update.service
 ```
 
 ### View Logs
-Review historical output and troubleshooting information:
+Monitor real-time progress or troubleshoot issues:
 ```bash
-journalctl -u flatpak-auto-update.service
+journalctl -u flatpak-auto-update.service -f
 ```
 
 ---
 
 ## 🔄 Rollback Instructions
 
-If an update causes issues, you can revert your system state using Snapper.
+If an update causes application instability, revert the changes using Snapper.
 
-### 1. Identify Snapshots
-List your snapshots to find the relevant IDs:
+### 1. Identify Snapshot Pair
+List snapshots to find the specific update window:
 ```bash
 sudo snapper list
 ```
-Look for descriptions: `flatpak-auto-update-pre` and `flatpak-auto-update-post`.
+Identify the IDs for `flatpak-auto-update-pre` and `flatpak-auto-update-post`.
 
-### 2. Review Changes (Optional)
-Compare the state between the snapshots (replace `100` and `101` with your IDs):
-```bash
-sudo snapper status 100..101
-```
-
-### 3. Undo Changes
-Revert the system state to the point before the update:
+### 2. Undo Changes
+Revert the filesystem to the "Pre" state (replace `100` and `101` with your actual IDs):
 ```bash
 sudo snapper undochange 100..101
 ```
@@ -88,39 +83,38 @@ sudo snapper undochange 100..101
 
 ## 🔧 Configuration
 
-Settings are managed in `/etc/flatpak-auto-update/env.conf`.
+Settings are managed in `/etc/flatpak-auto-update/env.conf`. This file supports dynamic variable evaluation.
 
 ```bash
-# Core Configuration
-email_from=bot@your-system.local
-email_to=admin@example.com
+# --- Core Identification ---
+email_from="bot@$(hostname)"
+email_to="admin@example.com"
 
-# Feature Toggles
+# --- Feature Toggles ---
 ENABLE_EMAIL=yes
 ENABLE_SNAPSHOTS=yes
 
-# Customization
+# --- Notification Customization ---
 EMAIL_FROM_DISPLAY="Fedora Bot"
-SNAPPER_CONFIG="root"
+# Subject lines support $UPDATE_COUNT and $(hostname)
+EMAIL_SUBJECT_SUCCESS="[$(hostname)] flatpak-auto-update: \$UPDATE_COUNT new upgrades have been installed."
 
-# Advanced: Command Overrides
-# You can replace the default Snapper commands with your own (e.g., btrfs subvolume)
-# or customize the mail client behavior.
+# --- Advanced Provider Settings ---
+SNAPPER_CONFIG="root"
+SNAPPER_DESC_PRE="flatpak-auto-update-pre"
+
+# --- Command Overrides (Expert Use Only) ---
+# MAIL_CMD="mailx -S sendwait ..."
 ```
 
 ---
 
 ## 📋 Dependencies
 
-* **flatpak**: Core update management.
-* **snapper**: Default snapshot provider (Btrfs recommended).
-* **s-nail**: (or mailx) SMTP notification client.
-* **systemd**: Service orchestration and scheduling.
-
-## 🏗 Contributing & Building
-
-Contributions are welcome! If you'd like to build the package from source or modify the update logic, please refer to the [Development Guide](DEVELOPMENT.md).
+* **flatpak**: Application lifecycle management.
+* **snapper**: Btrfs snapshot orchestration.
+* **s-nail** (or mailx): SMTP notification delivery.
+* **systemd**: Service scheduling and logging.
 
 ---
-*License: GPL-3.0-or-later*
-*Built for Fedora Linux*
+*License: GPL-3.0-or-later* *Maintained by fedoraBee - 2026*
