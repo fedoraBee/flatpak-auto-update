@@ -1,0 +1,33 @@
+# Changelog
+
+All notable changes to the **Flatpak Auto Update** project will be documented in this file.
+
+## [1.0.3] - 2026-03-29
+### Added
+- **Build Automation:** Introduced `build-rpm.sh`, a dynamic helper script that extracts versioning from the SPEC file and automates the full build lifecycle.
+- **Universal Compatibility:** Added filesystem safety checks to automatically detect Snapper/Btrfs support. The script now gracefully degrades to "Update-Only" mode on non-Btrfs systems.
+- **Open Source Governance:** Added `CONTRIBUTING.md` and `DEVELOPMENT.md` to establish standards and local setup guides.
+- **Fail-Fast Logic:** Integrated `set -euo pipefail` and validation checks for reliability.
+
+### Changed
+- **Variable Refactoring:** Standardized environment variables to **UPPERCASE** (`EMAIL_TO`, `EMAIL_FROM`, etc.).
+- **Metadata Sync:** Optimized the `.spec` file to include all new documentation in the `%doc` payload.
+
+## [1.0.2] - 2026-03-29
+### Changed
+- **Internal Refactor:** Improved shell logic consistency and variable validation.
+- **Reporting:** Optimized notification logic with late-binding variable evaluation.
+
+## [1.0.1] - 2026-03-29
+### Added
+- **Dynamic Subjects:** Email subjects now include the count of updated packages using regex parsing.
+- **Optimization:** Added a zero-impact dry-run check to prevent unnecessary disk writes/snapshots.
+
+### Fixed
+- **RPM Build:** Corrected macro path resolution for `LICENSE` and `README.md` within the buildroot.
+
+## [1.0.0] - 2026-03-12
+### Added
+- Initial release with Snapper pre/post snapshot integration.
+- Systemd timer and service for daily automation.
+- Email reporting via `s-nail/mailx`.
